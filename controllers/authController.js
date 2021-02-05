@@ -8,6 +8,7 @@ var multiparty = require('multiparty');
 var http = require('http');
 var util = require('util');
 
+const expiresIn = 60 * 60 * 24 * 5 * 1000;
 const metadata = {
     metadata: {
         firebaseStorageDownloadTokens: uuid()
@@ -26,7 +27,7 @@ function createImgPath(pathToFile, downloadToken) {
 const login = async (request, response, next) => {
     await new multiparty.Form().parse(request, function (err, fields, files) {
         if (err) return;
-        firebase.auth().signInWithEmailAndPassword(fields.email[0], fields.password[0])
+        /*firebase.auth().signInWithEmailAndPassword(fields.email[0], fields.password[0])
             .then(userRecord => {
                 response.send(userRecord);
                 return userRecord;
@@ -35,7 +36,37 @@ const login = async (request, response, next) => {
                 error.message=errorTr(error);
                 response.send(error);
                 return error;
-            });
+            });*/
+        //firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE);
+
+
+        //oturum açarken token bilgisini response cookie'ye kaydeder.
+        firebase.auth().signInWithEmailAndPassword(fields.email[0], fields.password[0])
+            .then(user => {
+                return user.user.getIdToken().then(idToken => {
+                    admin.auth().createSessionCookie(idToken, {expiresIn})
+                        .then(sessionCookie => {
+                            const options = {maxAge: expiresIn, httpOnly: true, secure: true};
+                            response.cookie('session', sessionCookie, options);
+                            response.end(JSON.stringify({sessCookie: sessionCookie, status: 'success'}));/*
+                             response.send({
+                                 "id":user.user.uid,
+                                 "idToken":idToken
+                             });*/
+
+                            return {
+                                "id": user.user.uid,
+                                "idToken": idToken
+                            };
+                        })
+                });
+            })
+            .catch(error => {
+                error.message = errorTr(error);
+                response.status(400).send(error);
+            })
+
+
     });
 };
 
@@ -54,7 +85,7 @@ const register = async (request, response, next) => {
                 return userRecord;
             })
             .catch(error => {
-                error.message=errorTr(error);
+                error.message = errorTr(error);
                 response.send(error);
                 return error;
             });
@@ -86,6 +117,7 @@ const userImgUpdate = async (request, response, next) => {
                     });
             })
             .catch(error => {
+                error.message = errorTr(error);
                 response.send(error);
                 return error;
             });
@@ -106,20 +138,24 @@ const updateUser = async (request, response, next) => {
                 return userRecord;
             })
             .catch(error => {
+                error.message = errorTr(error);
                 response.send(error);
                 return error;
             })
     });
 };
 
-const logout = async () => {
-    await auth.signOut().then(() => {
+const logout = async (request, response, next) => {
+    /*await firebase.auth().signOut().then(logout=>{
+        response.send(logout);
+    }).catch(error=>{
+        error.message=errorTr(error);
+        response.send(error);
+        return error;
+    });*/
 
-    }).catch((error) => {
-        var errorCode = error.code;
-        var errorMessage = error.message;
-        response.send(error.message);
-    });
+    response.clearCookie('session');
+    response.redirect('/login');
 }
 
 module.exports = {
